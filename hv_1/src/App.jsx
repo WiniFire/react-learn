@@ -47,7 +47,6 @@ function App() {
     <div className="app-shell">
       <header className="page-header">
         <h1>Магазин товарів</h1>
-        <p>Три приклади товарів із компонентом ProductCard.</p>
       </header>
 
       <div className="product-grid">
