@@ -46,7 +46,7 @@ function App() {
   return (
     <div className="app-shell">
       <header className="page-header">
-        <h1>Магазин товарів</h1>
+          <h1>Магазин товарів</h1>
       </header>
 
       <div className="product-grid">
