@@ -1,0 +1,30 @@
+.container-todo{
+    width: 400px;
+    margin: 0 auto;
+}
+
+.filters{
+    display: flex;
+    justify-content: end;
+}
+
+.item{
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.remove-btn{
+    margin-left: auto;
+    cursor: pointer;
+}
+
+.task-title{
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.task-title.done{
+    text-decoration: line-through;
+    color: #999;
+}
