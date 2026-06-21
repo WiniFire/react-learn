@@ -1,0 +1,451 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Link, Route, Routes, useParams } from 'react-router-dom'
+import './App.css'
+import ProductCard from './components/ProductCard'
+
+const API_URL = 'https://fakestoreapi.com/products'
+const CART_STORAGE_KEY = 'hv_4_cart'
+
+const getStoredCart = () => {
+  try {
+    const savedCart = localStorage.getItem(CART_STORAGE_KEY)
+    return savedCart ? JSON.parse(savedCart) : []
+  } catch {
+    return []
+  }
+}
+
+const getSaleInfo = (product) => {
+  const isSale = product.rating?.rate >= 4.2 || product.id % 4 === 0
+
+  if (!isSale) {
+    return {
+      isSale: false,
+      price: product.price,
+      oldPrice: null,
+      discount: null,
+    }
+  }
+
+  const discount = product.price > 100 ? 15 : 10
+  const oldPrice = Number((product.price / (1 - discount / 100)).toFixed(2))
+
+  return {
+    isSale: true,
+    price: product.price,
+    oldPrice,
+    discount,
+  }
+}
+
+const normalizeProduct = (product) => {
+  const saleInfo = getSaleInfo(product)
+
+  return {
+    id: product.id,
+    title: product.title,
+    price: saleInfo.price,
+    oldPrice: saleInfo.oldPrice,
+    currency: '$',
+    image: product.image,
+    rating: product.rating?.rate ?? 0,
+    ratingCount: product.rating?.count ?? 0,
+    description: product.description,
+    inStock: true,
+    discount: saleInfo.discount,
+    category: product.category,
+    isSale: saleInfo.isSale,
+    badges: saleInfo.isSale ? ['sale'] : [],
+  }
+}
+
+function ProductDetails({ products, isLoading, error, onAddToCart }) {
+  const { productId } = useParams()
+  const product = products.find((item) => String(item.id) === productId)
+
+  if (isLoading) {
+    return <p className="status-message">Завантаження товару...</p>
+  }
+
+  if (error) {
+    return <p className="status-message status-message--error">{error}</p>
+  }
+
+  if (!product) {
+    return (
+      <section className="product-details">
+        <p className="status-message">Товар не знайдено</p>
+        <Link className="back-link" to="/">
+          Повернутися до каталогу
+        </Link>
+      </section>
+    )
+  }
+
+  return (
+    <section className="product-details">
+      <Link className="back-link" to="/">
+        Повернутися до каталогу
+      </Link>
+
+      <div className="product-details__layout">
+        <div className="product-details__image-wrap">
+          <img src={product.image} alt={product.title} />
+        </div>
+
+        <div className="product-details__content">
+          <span className="product-category">{product.category}</span>
+          <h2>{product.title}</h2>
+          <p>{product.description}</p>
+
+          <div className="product-details__meta">
+            <span>Рейтинг: {product.rating} / 5</span>
+            <span>Відгуків: {product.ratingCount}</span>
+            <span>{product.inStock ? 'В наявності' : 'Немає в наявності'}</span>
+          </div>
+
+          <div className="product-price-group product-details__price">
+            {product.oldPrice && (
+              <span className="price-old">
+                {product.currency}
+                {product.oldPrice.toFixed(2)}
+              </span>
+            )}
+            <strong className="price-current">
+              {product.currency}
+              {product.price.toFixed(2)}
+            </strong>
+          </div>
+
+          <button
+            type="button"
+            className={`product-button ${!product.inStock ? 'product-button--disabled' : ''}`}
+            disabled={!product.inStock}
+            onClick={() => product.inStock && onAddToCart(product.id)}
+          >
+            {product.inStock ? 'Додати в кошик' : 'Немає в наявності'}
+          </button>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function App() {
+  const [products, setProducts] = useState([])
+  const [cartItems, setCartItems] = useState(getStoredCart)
+  const [isCartOpen, setIsCartOpen] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [minPrice, setMinPrice] = useState('')
+  const [maxPrice, setMaxPrice] = useState('')
+  const [onlySale, setOnlySale] = useState(false)
+  const [selectedCategories, setSelectedCategories] = useState([])
+  const [sortOrder, setSortOrder] = useState('cheap')
+
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const loadProducts = async () => {
+      try {
+        setIsLoading(true)
+        setError('')
+
+        const response = await fetch(API_URL, { signal: controller.signal })
+
+        if (!response.ok) {
+          throw new Error('Не вдалося завантажити товари')
+        }
+
+        const data = await response.json()
+        setProducts(data.map(normalizeProduct))
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          setError(err.message || 'Сталася помилка під час завантаження')
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    loadProducts()
+
+    return () => controller.abort()
+  }, [])
+
+  useEffect(() => {
+    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cartItems))
+  }, [cartItems])
+
+  const categories = useMemo(
+    () => [...new Set(products.map((product) => product.category))].sort(),
+    [products],
+  )
+
+  const filteredProducts = useMemo(() => {
+    const min = minPrice === '' ? 0 : Number(minPrice)
+    const max = maxPrice === '' ? Infinity : Number(maxPrice)
+
+    return products
+      .filter((product) => product.price >= min && product.price <= max)
+      .filter((product) => !onlySale || product.isSale)
+      .filter(
+        (product) =>
+          selectedCategories.length === 0 || selectedCategories.includes(product.category),
+      )
+      .sort((first, second) =>
+        sortOrder === 'cheap' ? first.price - second.price : second.price - first.price,
+      )
+  }, [maxPrice, minPrice, onlySale, products, selectedCategories, sortOrder])
+
+  const cartCount = useMemo(
+    () => cartItems.reduce((sum, item) => sum + item.quantity, 0),
+    [cartItems],
+  )
+
+  const cartTotal = useMemo(
+    () => cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0),
+    [cartItems],
+  )
+
+  const handleCategoryChange = (category) => {
+    setSelectedCategories((current) =>
+      current.includes(category)
+        ? current.filter((item) => item !== category)
+        : [...current, category],
+    )
+  }
+
+  const handleAddToCart = (id) => {
+    const product = products.find((item) => item.id === id)
+
+    if (!product) {
+      return
+    }
+
+    setCartItems((currentItems) => {
+      const existingItem = currentItems.find((item) => item.id === id)
+
+      if (existingItem) {
+        return currentItems.map((item) =>
+          item.id === id ? { ...item, quantity: item.quantity + 1 } : item,
+        )
+      }
+
+      return [
+        ...currentItems,
+        {
+          id: product.id,
+          title: product.title,
+          price: product.price,
+          currency: product.currency,
+          image: product.image,
+          quantity: 1,
+        },
+      ]
+    })
+  }
+
+  const handleRemoveFromCart = (id) => {
+    setCartItems((currentItems) => currentItems.filter((item) => item.id !== id))
+  }
+
+  const handleQuantityChange = (id, quantity) => {
+    const nextQuantity = Math.max(1, Number(quantity) || 1)
+
+    setCartItems((currentItems) =>
+      currentItems.map((item) =>
+        item.id === id ? { ...item, quantity: nextQuantity } : item,
+      ),
+    )
+  }
+
+  return (
+    <div className="app-shell">
+      <header className="page-header">
+        <h1>Магазин товарів</h1>
+        <button type="button" className="cart-button" onClick={() => setIsCartOpen(true)}>
+          <span className="cart-button__icon" aria-hidden="true">
+            🛒
+          </span>
+          <span>Кошик</span>
+          <strong>{cartCount}</strong>
+        </button>
+      </header>
+
+      <Routes>
+        <Route
+          path="/"
+          element={
+            <>
+      <section className="catalog-controls" aria-label="Фільтри каталогу">
+        <div className="control-group price-filter">
+          <h2>Ціна</h2>
+          <div className="price-inputs">
+            <label>
+              Від
+              <input
+                type="number"
+                min="0"
+                placeholder="0"
+                value={minPrice}
+                onChange={(event) => setMinPrice(event.target.value)}
+              />
+            </label>
+            <label>
+              До
+              <input
+                type="number"
+                min="0"
+                placeholder="999"
+                value={maxPrice}
+                onChange={(event) => setMaxPrice(event.target.value)}
+              />
+            </label>
+          </div>
+        </div>
+
+        <div className="control-group">
+          <h2>Категорії</h2>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={onlySale}
+              onChange={(event) => setOnlySale(event.target.checked)}
+            />
+            Акційні товари
+          </label>
+          <div className="category-list">
+            {categories.map((category) => (
+              <label className="checkbox-row" key={category}>
+                <input
+                  type="checkbox"
+                  checked={selectedCategories.includes(category)}
+                  onChange={() => handleCategoryChange(category)}
+                />
+                {category}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="control-group">
+          <h2>Сортування</h2>
+          <select value={sortOrder} onChange={(event) => setSortOrder(event.target.value)}>
+            <option value="cheap">Від дешевих</option>
+            <option value="expensive">Від дорогих</option>
+          </select>
+        </div>
+      </section>
+
+      {isLoading && <p className="status-message">Завантаження товарів...</p>}
+      {error && <p className="status-message status-message--error">{error}</p>}
+
+      {!isLoading && !error && (
+        <>
+          <p className="result-count">Знайдено товарів: {filteredProducts.length}</p>
+          <div className="product-grid">
+            {filteredProducts.map((product) => (
+              <ProductCard key={product.id} {...product} onAddToCart={handleAddToCart} />
+            ))}
+          </div>
+          {filteredProducts.length === 0 && (
+            <p className="status-message">За цими фільтрами товарів немає</p>
+          )}
+        </>
+      )}
+
+            </>
+          }
+        />
+        <Route
+          path="/:productId"
+          element={
+            <ProductDetails
+              products={products}
+              isLoading={isLoading}
+              error={error}
+              onAddToCart={handleAddToCart}
+            />
+          }
+        />
+      </Routes>
+
+      {isCartOpen && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setIsCartOpen(false)}>
+          <div
+            className="cart-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="cart-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="cart-modal__header">
+              <h2 id="cart-title">Кошик</h2>
+              <button
+                type="button"
+                className="cart-modal__close"
+                aria-label="Закрити кошик"
+                onClick={() => setIsCartOpen(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            {cartItems.length === 0 ? (
+              <p className="cart-empty">Кошик порожній</p>
+            ) : (
+              <>
+                <div className="cart-list">
+                  {cartItems.map((item) => (
+                    <article className="cart-item" key={item.id}>
+                      <img src={item.image} alt={item.title} />
+                      <div className="cart-item__info">
+                        <h3>{item.title}</h3>
+                        <span>
+                          {item.currency}
+                          {item.price.toFixed(2)}
+                        </span>
+                      </div>
+                      <label className="cart-item__quantity">
+                        Кількість
+                        <input
+                          type="number"
+                          min="1"
+                          value={item.quantity}
+                          onChange={(event) =>
+                            handleQuantityChange(item.id, event.target.value)
+                          }
+                        />
+                      </label>
+                      <strong className="cart-item__subtotal">
+                        {item.currency}
+                        {(item.price * item.quantity).toFixed(2)}
+                      </strong>
+                      <button
+                        type="button"
+                        className="cart-item__remove"
+                        onClick={() => handleRemoveFromCart(item.id)}
+                      >
+                        Видалити
+                      </button>
+                    </article>
+                  ))}
+                </div>
+
+                <div className="cart-total">
+                  <span>Разом</span>
+                  <strong>${cartTotal.toFixed(2)}</strong>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export default App
